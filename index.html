@@ -273,7 +273,7 @@ async function doSubmit(){
     closeM('m-loading');
     if(data.id && data.slug && data.keyHash){
       const cleanURL=WORKER_URL+'/s/'+data.id+'/'+data.slug;
-      const loaderURL=WORKER_URL+'/s/'+data.id+'/'+data.slug+'?t='+data.keyHash;
+      const loaderURL=WORKER_URL+'/s/'+data.id+'/'+data.slug+'?t='+data.keyHash+'&raw=true';
       document.getElementById('result-url').textContent=cleanURL;
       document.getElementById('result-loader').textContent='loadstring(game:HttpGet("'+loaderURL+'"))()';
       openM('m-done');
