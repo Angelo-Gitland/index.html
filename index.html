@@ -76,7 +76,7 @@ svg{display:inline-block;vertical-align:middle}
       </div>
       <input type="text" id="f-title" maxlength="20" placeholder="Script Name" oninput="ctr('f-title','c-title',20)"/>
       <div class="ctr" id="c-title">0 / 20</div>
-      <span class="fdesc">Create a title. It will also appear in the protected URL (Limit: 20).</span>
+      <span class="fdesc">Create a title so you will not confused with your project (Limit: 20).</span>
     </div>
 
     <div class="field">
@@ -99,7 +99,7 @@ svg{display:inline-block;vertical-align:middle}
       </div>
       <input type="text" id="f-key" maxlength="20" placeholder="Create a key..." oninput="ctr('f-key','c-key',20)"/>
       <div class="ctr" id="c-key">0 / 20</div>
-      <span class="fdesc">Create a key. The key is stored securely and never appears in the loader or URL (Limit: 20).</span>
+      <span class="fdesc">Create a short key, without key users are nott able to access the page. (Limit: 20).</span>
     </div>
 
     <div class="warn-bar">
@@ -131,7 +131,7 @@ svg{display:inline-block;vertical-align:middle}
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--warn)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
       Are you sure you want to discard?
     </h3>
-    <p>All fields will be cleared and your inputs will be lost.</p>
+    <p>All fields will be clear.</p>
     <div class="mact">
       <button class="btn btn-ghost" onclick="closeM('m-cancel')">No</button>
       <button class="btn btn-primary" style="background:var(--danger);color:#fff" onclick="doCancel()">Yes, Discard</button>
@@ -143,9 +143,9 @@ svg{display:inline-block;vertical-align:middle}
   <div class="modal">
     <h3>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-      Before you continue
+      Before you continue!
     </h3>
-    <p>By confirming, your script and key will be stored in Cloudflare KV. You will receive a protected URL and a ready-to-use Roblox loader.</p>
+    <p>By confirming, We will remind you that this will stored in our database and can monitor.</p>
     <div class="mact">
       <button class="btn btn-ghost" onclick="closeM('m-confirm')">Cancel</button>
       <button class="btn btn-primary" onclick="doSubmit()">
@@ -159,8 +159,8 @@ svg{display:inline-block;vertical-align:middle}
 <div class="ov" id="m-loading">
   <div class="modal" style="align-items:center;text-align:center">
     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>
-    <h3>Securing your script...</h3>
-    <p>Saving to Cloudflare KV, please wait.</p>
+    <h3>Uploading...</h3>
+    <p>Saving to our database, please wait.</p>
   </div>
 </div>
 
@@ -170,20 +170,20 @@ svg{display:inline-block;vertical-align:middle}
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
       Well done!
     </h3>
-    <p>Your script is now protected! Share the URL. Anyone who visits must enter your key first.</p>
+    <p>Your script is now protected with Lua Land Security! Anyone who visits must enter your key first!</p>
     <div style="display:flex;flex-direction:column;gap:6px">
-      <span style="font-size:.68rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Protected URL</span>
+      <span style="font-size:.68rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Protected Url</span>
       <div class="url-box" id="result-url"></div>
     </div>
     <div style="display:flex;flex-direction:column;gap:6px">
-      <span style="font-size:.68rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Roblox Loader</span>
+      <span style="font-size:.68rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Script Loader</span>
       <div class="rbox" id="result-loader"></div>
     </div>
-    <p style="font-size:.72rem;color:var(--muted)">Want to copy? Click below!</p>
+    <p style="font-size:.72rem;color:var(--muted)">Thank you for using our tool!</p>
     <div class="mact" style="flex-wrap:wrap">
       <button class="btn btn-ok" onclick="copyURL()">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-        Copy URL
+        Copy Url
       </button>
       <button class="btn btn-neu" onclick="copyLoader()">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
@@ -207,7 +207,7 @@ svg{display:inline-block;vertical-align:middle}
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
       Something went wrong
     </h3>
-    <p id="err-msg">Could not save your script. Make sure your Worker is deployed correctly.</p>
+    <p id="err-msg">Could not save your script please contact web supporters.</p>
     <div class="mact">
       <button class="btn btn-ghost" onclick="closeM('m-error')">Close</button>
     </div>
