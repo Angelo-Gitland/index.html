@@ -275,7 +275,7 @@ async function doSubmit(){
       const cleanURL=WORKER_URL+'/s/'+data.id+'/'+data.slug;
       document.getElementById('result-url').textContent=cleanURL;
       document.getElementById('result-loader').textContent=
-        'loadstring(game:HttpGet("'+cleanURL+'"))()';
+  'loadstring(game:HttpGet("'+cleanURL+'?t='+data.keyHash+'"))()';
       openM('m-done');
     } else {
       throw new Error(data.error||'Unknown error');
