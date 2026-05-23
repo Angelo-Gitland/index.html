@@ -93,13 +93,13 @@ svg{display:inline-block;vertical-align:middle}
     <div class="field">
       <div class="frow">
         <span class="flabel">KEY *</span>
-        <button class="ibtn" data-info="Create a secret key. The key is embedded in the Roblox loader so executors can load the script directly. Visitors on the web must enter it manually." onclick="showInfo(this,event)">
+        <button class="ibtn" data-info="Create a secret key. It is stored safely in Cloudflare KV and never shown in the loader or URL. Web visitors must enter it manually." onclick="showInfo(this,event)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
         </button>
       </div>
       <input type="text" id="f-key" maxlength="20" placeholder="Create a key..." oninput="ctr('f-key','c-key',20)"/>
       <div class="ctr" id="c-key">0 / 20</div>
-      <span class="fdesc">Create a key. Users without the key cannot access the script (Limit: 20).</span>
+      <span class="fdesc">Create a key. The key is stored securely and never appears in the loader or URL (Limit: 20).</span>
     </div>
 
     <div class="warn-bar">
@@ -145,7 +145,7 @@ svg{display:inline-block;vertical-align:middle}
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
       Before you continue
     </h3>
-    <p>By confirming, your script and key will be stored in Cloudflare KV. You will receive a protected URL and a ready-to-use Roblox loader.</p>
+    <p>By confirming, your script and key will be stored in Cloudflare KV. You will receive a clean protected URL and a ready-to-use Roblox loader with no key visible.</p>
     <div class="mact">
       <button class="btn btn-ghost" onclick="closeM('m-confirm')">Cancel</button>
       <button class="btn btn-primary" onclick="doSubmit()">
@@ -170,7 +170,7 @@ svg{display:inline-block;vertical-align:middle}
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
       Well done!
     </h3>
-    <p>Your script is now protected! Share the URL below. Anyone who visits it must enter your key first.</p>
+    <p>Your script is now protected! The Roblox loader below has no key visible — executors load it automatically.</p>
     <div style="display:flex;flex-direction:column;gap:6px">
       <span style="font-size:.68rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Protected URL</span>
       <div class="url-box" id="result-url"></div>
@@ -273,10 +273,9 @@ async function doSubmit(){
     closeM('m-loading');
     if(data.id){
       const cleanURL=WORKER_URL+'/s/'+data.id+'/'+data.slug;
-      const loaderURL=WORKER_URL+'/s/'+data.id+'/'+data.slug+'?k='+encodeURIComponent(key);
       document.getElementById('result-url').textContent=cleanURL;
       document.getElementById('result-loader').textContent=
-        'loadstring(game:HttpGet("'+loaderURL+'"))()';
+        'loadstring(game:HttpGet("'+cleanURL+'"))()';
       openM('m-done');
     } else {
       throw new Error(data.error||'Unknown error');
