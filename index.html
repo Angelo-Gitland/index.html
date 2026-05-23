@@ -1,309 +1,269 @@
-<!DOCTYPE html>
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type,X-Access-Key',
+};
+
+const RATE_MAP = new Map();
+
+addEventListener('fetch', event => {
+  event.respondWith(handle(event.request));
+});
+
+async function handle(req) {
+  const url = new URL(req.url);
+  const path = url.pathname;
+
+  if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
+  if (req.method === 'POST' && path === '/upload') return handleUpload(req);
+  if (req.method === 'GET' && path.startsWith('/s/')) return handleAccess(req, path, url);
+
+  return new Response('Lua Land Security is running.', {
+    headers: { 'Content-Type': 'text/plain', ...CORS }
+  });
+}
+
+async function handleUpload(req) {
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+
+  const { title, script, key } = body;
+  if (!title || !script || !key) return json({ error: 'All fields are required' }, 400);
+  if (key.length > 20) return json({ error: 'Key too long, max 20' }, 400);
+  if (title.length > 20) return json({ error: 'Title too long, max 20' }, 400);
+
+  const id = generateId();
+  const ip = req.headers.get('CF-Connecting-IP') || 'unknown';
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+  await LLS_STORE.put('script:' + id, JSON.stringify({
+    title, script, key, slug,
+    created: new Date().toISOString(),
+    ip
+  }));
+
+  await discordLog('New Script Uploaded', 'Title: ' + title + '\nID: `' + id + '`\nSlug: ' + slug + '\nIP: ' + ip, 0xa0a8ff);
+
+  return json({ id, slug }, 200);
+}
+
+async function handleAccess(req, path, url) {
+  const ip      = req.headers.get('CF-Connecting-IP') || 'unknown';
+  const country = req.headers.get('CF-IPCountry')     || 'XX';
+  const ua      = req.headers.get('User-Agent')       || 'unknown';
+  const now     = Date.now();
+
+  const blockedAgents = ['python-requests', 'curl/', 'wget/', 'scrapy', 'httpx', 'go-http'];
+  if (blockedAgents.some(b => ua.toLowerCase().includes(b))) {
+    await discordLog('Blocked Scraper', 'Path: `' + path + '`\nIP: ' + ip + '\nCountry: ' + country + '\nUA: ' + ua.slice(0, 120), 0xe05555);
+    return new Response('403 Forbidden', { status: 403 });
+  }
+
+  const rl = RATE_MAP.get(ip) || { count: 0, reset: now + 60000 };
+  if (now > rl.reset) { rl.count = 0; rl.reset = now + 60000; }
+  rl.count++;
+  RATE_MAP.set(ip, rl);
+  if (rl.count > 15) {
+    await discordLog('Rate Limited', 'Path: `' + path + '`\nIP: ' + ip + '\nCountry: ' + country, 0xf0a500);
+    return new Response('429 Too Many Requests', { status: 429, headers: { 'Retry-After': '60' } });
+  }
+
+  const parts = path.slice(3).split('/');
+  const id = parts[0];
+
+  const raw = await LLS_STORE.get('script:' + id);
+  if (!raw) {
+    return new Response(keyGatePage(id, 'Script not found or has been removed.', true, ''), {
+      status: 404, headers: { 'Content-Type': 'text/html' }
+    });
+  }
+
+  const record = JSON.parse(raw);
+
+  const providedKey = url.searchParams.get('k')
+    || req.headers.get('X-Access-Key')
+    || '';
+
+  const isExecutor = !ua.toLowerCase().includes('mozilla') && !ua.toLowerCase().includes('chrome') && !ua.toLowerCase().includes('safari');
+  const wantRaw = url.searchParams.get('raw') === '1' || isExecutor;
+
+  if (!providedKey) {
+    await discordLog('Page Visited', 'Title: ' + record.title + '\nID: `' + id + '`\nIP: ' + ip + '\nCountry: ' + country + '\nUA: ' + ua.slice(0, 100), 0x5865f2);
+    if (wantRaw) return new Response('Access denied. Key required.', { status: 401, headers: CORS });
+    return new Response(keyGatePage(id, '', false, record.title), {
+      headers: { 'Content-Type': 'text/html' }
+    });
+  }
+
+  if (providedKey !== record.key) {
+    await discordLog('Wrong Key Attempt', 'Title: ' + record.title + '\nID: `' + id + '`\nIP: ' + ip + '\nCountry: ' + country, 0xe05555);
+    if (wantRaw) return new Response('Access denied. Wrong key.', { status: 401, headers: CORS });
+    return new Response(keyGatePage(id, 'Wrong key. Access denied.', false, record.title), {
+      status: 401, headers: { 'Content-Type': 'text/html' }
+    });
+  }
+
+  await discordLog('Authorized Access', 'Title: ' + record.title + '\nID: `' + id + '`\nIP: ' + ip + '\nCountry: ' + country, 0x3ecf8e);
+
+  return new Response(record.script, {
+    headers: {
+      'Content-Type': 'text/plain',
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      'X-Protected-By': 'Lua Land Security',
+      ...CORS
+    }
+  });
+}
+
+function keyGatePage(id, errorMsg, notFound, title) {
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>Lua Land Security</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Lua Land Security${title ? ' - ' + title : ''}</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Sora:wght@400;600;700&display=swap" rel="stylesheet"/>
 <style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --bg:#080809;--surface:#111115;--s2:#1a1a22;
-  --border:rgba(255,255,255,0.1);--bf:rgba(255,255,255,0.45);
-  --text:#eeeef5;--muted:#5a5a70;--accent:#a0a8ff;
-  --warn:#f0a500;--danger:#e05555;--ok:#3ecf8e;--r:12px;
-}
-html,body{background:var(--bg);color:var(--text);font-family:'Sora',sans-serif;min-height:100vh}
-body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(255,255,255,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.02) 1px,transparent 1px);background-size:36px 36px;pointer-events:none;z-index:0}
-.page{position:relative;z-index:1;max-width:680px;margin:0 auto;padding:40px 20px 80px}
-.hdr{display:flex;align-items:center;gap:9px;margin-bottom:36px}
-.hdr-icon{color:var(--text);display:flex;align-items:center}
-.hdr-title{font-family:'Share Tech Mono',monospace;font-size:1.25rem;letter-spacing:.06em}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px 24px;display:flex;flex-direction:column;gap:24px}
-.field{display:flex;flex-direction:column;gap:7px}
-.frow{display:flex;align-items:center;justify-content:space-between}
-.flabel{font-size:.68rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
-.fdesc{font-size:.72rem;color:var(--muted);line-height:1.5}
-.ibtn{background:none;border:none;cursor:pointer;color:var(--muted);display:flex;align-items:center;padding:2px;border-radius:4px;transition:color .2s}
-.ibtn:hover{color:var(--text)}
-input[type=text],textarea{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:var(--r);color:var(--text);font-family:'Sora',sans-serif;font-size:.88rem;padding:11px 13px;outline:none;transition:border-color .2s,box-shadow .2s}
-input[type=text]:focus,textarea:focus{border-color:var(--bf);box-shadow:0 0 0 3px rgba(255,255,255,0.03)}
-input[type=text]::placeholder,textarea::placeholder{color:var(--muted);font-size:.82rem}
-textarea{min-height:120px;font-family:'Share Tech Mono',monospace;font-size:.8rem;line-height:1.6;resize:vertical;white-space:pre-wrap}
-.ctr{font-size:.68rem;color:var(--muted);text-align:right;margin-top:-3px}
-.ctr.over{color:var(--danger)}
-.warn-bar{display:flex;align-items:flex-start;gap:9px;background:rgba(240,165,0,.07);border:1px solid rgba(240,165,0,.22);border-radius:9px;padding:11px 13px;font-size:.75rem;color:var(--warn);line-height:1.5}
-hr{border:none;border-top:1px solid var(--border)}
-.actions{display:flex;justify-content:space-between;gap:10px}
-.btn{display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border-radius:10px;font-family:'Sora',sans-serif;font-size:.83rem;font-weight:600;cursor:pointer;border:none;transition:opacity .18s,transform .12s}
-.btn:active{transform:scale(.97)}
-.btn-ghost{background:transparent;border:1px solid var(--border);color:var(--muted)}
-.btn-ghost:hover{border-color:var(--bf);color:var(--text)}
-.btn-primary{background:var(--text);color:var(--bg)}
-.btn-primary:hover{opacity:.88}
-.btn-ok{background:var(--ok);color:#080809}
-.btn-disc{background:#5865F2;color:#fff}
-.btn-neu{background:var(--s2);border:1px solid var(--border);color:var(--text)}
-.ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:100;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}
-.ov.open{display:flex}
-.modal{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:26px 24px 22px;max-width:400px;width:100%;display:flex;flex-direction:column;gap:14px;animation:pop .17s ease}
-@keyframes pop{from{opacity:0;transform:scale(.93) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
-.modal h3{font-size:.95rem;font-weight:700;display:flex;align-items:center;gap:7px}
-.modal p{font-size:.8rem;color:var(--muted);line-height:1.6}
-.mact{display:flex;gap:9px;justify-content:flex-end;flex-wrap:wrap}
-.rbox{background:var(--s2);border:1px solid var(--border);border-radius:var(--r);padding:13px 15px;font-family:'Share Tech Mono',monospace;font-size:.76rem;color:var(--ok);white-space:pre-wrap;word-break:break-all;max-height:160px;overflow-y:auto;line-height:1.6}
-.url-box{background:var(--s2);border:1px solid rgba(62,207,142,.3);border-radius:var(--r);padding:12px 14px;font-family:'Share Tech Mono',monospace;font-size:.78rem;color:var(--ok);word-break:break-all;line-height:1.6}
-.ipop{display:none;position:fixed;z-index:200;background:var(--s2);border:1px solid var(--bf);border-radius:9px;padding:11px 13px;max-width:260px;font-size:.75rem;color:var(--text);line-height:1.5;box-shadow:0 8px 28px rgba(0,0,0,.6);pointer-events:none}
-.ipop.v{display:block}
-@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
-::-webkit-scrollbar{width:5px;height:5px}
-::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#080809;--s:#111115;--s2:#1a1a22;--b:rgba(255,255,255,.1);--bf:rgba(255,255,255,.45);--t:#eeeef5;--m:#5a5a70;--a:#a0a8ff;--ok:#3ecf8e;--err:#e05555}
+body{background:var(--bg);color:var(--t);font-family:'Sora',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(255,255,255,.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.02) 1px,transparent 1px);background-size:36px 36px;pointer-events:none}
+.box{background:var(--s);border:1px solid var(--b);border-radius:16px;padding:32px 28px;max-width:400px;width:100%;display:flex;flex-direction:column;gap:18px;position:relative;z-index:1;animation:fi .3s ease}
+@keyframes fi{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.logo{display:flex;align-items:center;gap:8px;justify-content:center}
+.logo-text{font-family:'Share Tech Mono',monospace;font-size:1rem;letter-spacing:.06em}
+.stitle{text-align:center;font-size:.72rem;color:var(--m);font-family:'Share Tech Mono',monospace;letter-spacing:.05em}
+.heading{display:flex;flex-direction:column;align-items:center;gap:8px}
+.heading h2{font-size:1.1rem;font-weight:700;display:flex;align-items:center;gap:7px}
+.heading p{font-size:.78rem;color:var(--m);line-height:1.5;text-align:center}
+.iw{position:relative}
+input[type=password],input[type=text]{width:100%;background:var(--s2);border:1px solid var(--b);border-radius:10px;color:var(--t);font-family:'Share Tech Mono',monospace;font-size:.9rem;padding:12px 42px 12px 14px;outline:none;transition:border-color .2s,box-shadow .2s;letter-spacing:.08em}
+input:focus{border-color:var(--bf);box-shadow:0 0 0 3px rgba(255,255,255,.03)}
+input::placeholder{color:var(--m);font-size:.8rem;letter-spacing:normal}
+.eye{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--m);display:flex;align-items:center;transition:color .2s}
+.eye:hover{color:var(--t)}
+.go{background:var(--t);color:var(--bg);border:none;border-radius:10px;padding:12px;font-family:'Sora',sans-serif;font-size:.88rem;font-weight:700;cursor:pointer;width:100%;display:flex;align-items:center;justify-content:center;gap:7px;transition:opacity .18s,transform .12s}
+.go:hover{opacity:.88}
+.go:active{transform:scale(.97)}
+.err-bar{background:rgba(224,85,85,.08);border:1px solid rgba(224,85,85,.25);border-radius:8px;padding:10px 12px;font-size:.76rem;color:var(--err);display:flex;align-items:center;gap:7px}
+.nf{display:flex;flex-direction:column;align-items:center;gap:8px;background:rgba(224,85,85,.08);border:1px solid rgba(224,85,85,.25);border-radius:8px;padding:14px;font-size:.8rem;color:var(--err);text-align:center}
+hr{border:none;border-top:1px solid var(--b)}
+.footer{text-align:center;font-size:.68rem;color:var(--m);display:flex;align-items:center;justify-content:center;gap:5px}
 svg{display:inline-block;vertical-align:middle}
 </style>
 </head>
 <body>
-<div class="page">
-  <div class="hdr">
-    <span class="hdr-icon">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
-    </span>
-    <span class="hdr-title">Lua Land Security</span>
+<div class="box">
+  <div class="logo">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#eeeef5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+    <span class="logo-text">Lua Land Security</span>
   </div>
-
-  <div class="card">
-
-    <div class="field">
-      <div class="frow">
-        <span class="flabel">TITLE *</span>
-        <button class="ibtn" data-info="Give your script a name so you won't confuse it with other projects. Max 20 characters." onclick="showInfo(this,event)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-        </button>
-      </div>
-      <input type="text" id="f-title" maxlength="20" placeholder="Script Name" oninput="ctr('f-title','c-title',20)"/>
-      <div class="ctr" id="c-title">0 / 20</div>
-      <span class="fdesc">Create a title or give it a name, so you will not be confused of your projects (Limit: 20).</span>
-    </div>
-
-    <div class="field">
-      <div class="frow">
-        <span class="flabel">SCRIPT *</span>
-        <button class="ibtn" data-info="Paste your full Lua script here. This is what gets protected behind your key. No character limit." onclick="showInfo(this,event)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-        </button>
-      </div>
-      <textarea id="f-script" placeholder="game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = 39"></textarea>
-      <span class="fdesc">Enter the script that you want to secure (No limits).</span>
-    </div>
-
-    <div class="field">
-      <div class="frow">
-        <span class="flabel">KEY *</span>
-        <button class="ibtn" data-info="Create a secret key. Anyone who visits your protected URL must enter this exact key to see the script. The key will NOT appear in the loader script." onclick="showInfo(this,event)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-        </button>
-      </div>
-      <input type="text" id="f-key" maxlength="20" placeholder="Create a key..." oninput="ctr('f-key','c-key',20)"/>
-      <div class="ctr" id="c-key">0 / 20</div>
-      <span class="fdesc">Create a key. Users without key are not able to access the script (Limit: 20).</span>
-    </div>
-
-    <div class="warn-bar">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-      <span>Never share the key to others that you don't know! Or else people can access your script!</span>
-    </div>
-
-    <hr/>
-
-    <div class="actions">
-      <button class="btn btn-ghost" onclick="openM('m-cancel')">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        Cancel
-      </button>
-      <button class="btn btn-primary" onclick="tryConfirm()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
-        Confirm
-      </button>
-    </div>
-
+  ${title ? `<div class="stitle">${escapeHtml(title)}</div>` : ''}
+  ${notFound ? `
+  <div class="heading">
+    <h2><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--err)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg> Not Found</h2>
+    <p>This script does not exist or has been removed.</p>
+  </div>
+  <div class="nf">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    Script not found or has been removed.
+  </div>
+  ` : `
+  <div class="heading">
+    <h2><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--a)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Key Required</h2>
+    <p>This script is protected. Enter the correct key provided by the script owner.</p>
+  </div>
+  ${errorMsg ? `<div class="err-bar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>${escapeHtml(errorMsg)}</div>` : ''}
+  <div class="iw">
+    <input type="password" id="ki" placeholder="Enter your key..." maxlength="20" onkeydown="if(event.key==='Enter')go()"/>
+    <button class="eye" onclick="toggleEye()">
+      <svg id="ei" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+    </button>
+  </div>
+  <button class="go" onclick="go()">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
+    Access Script
+  </button>
+  `}
+  <hr/>
+  <div class="footer">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+    Protected by Lua Land Security
   </div>
 </div>
-
-<div class="ipop" id="ipop"></div>
-
-<div class="ov" id="m-cancel">
-  <div class="modal">
-    <h3>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--warn)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-      Are you sure you want to discard?
-    </h3>
-    <p>All fields will be cleared and your inputs will be lost.</p>
-    <div class="mact">
-      <button class="btn btn-ghost" onclick="closeM('m-cancel')">No</button>
-      <button class="btn btn-primary" style="background:var(--danger);color:#fff" onclick="doCancel()">Yes, Discard</button>
-    </div>
-  </div>
-</div>
-
-<div class="ov" id="m-confirm">
-  <div class="modal">
-    <h3>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-      Before you continue
-    </h3>
-    <p>By confirming, your script and key will be stored in Cloudflare KV. You will receive a protected URL that requires your key to access.</p>
-    <div class="mact">
-      <button class="btn btn-ghost" onclick="closeM('m-confirm')">Cancel</button>
-      <button class="btn btn-primary" onclick="doSubmit()">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-        Continue
-      </button>
-    </div>
-  </div>
-</div>
-
-<div class="ov" id="m-loading">
-  <div class="modal" style="align-items:center;text-align:center">
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>
-    <h3>Securing your script...</h3>
-    <p>Saving to Cloudflare KV, please wait.</p>
-  </div>
-</div>
-
-<div class="ov" id="m-done">
-  <div class="modal">
-    <h3>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
-      Well done!
-    </h3>
-    <p>Your script is now protected! Share the URL below. Anyone who visits it must enter your key first.</p>
-    <div style="display:flex;flex-direction:column;gap:6px">
-      <span style="font-size:.68rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Protected URL</span>
-      <div class="url-box" id="result-url"></div>
-    </div>
-    <div style="display:flex;flex-direction:column;gap:6px">
-      <span style="font-size:.68rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Roblox Loader</span>
-      <div class="rbox" id="result-loader"></div>
-    </div>
-    <p style="font-size:.72rem;color:var(--muted)">Want to copy? Click below!</p>
-    <div class="mact" style="flex-wrap:wrap">
-      <button class="btn btn-ok" onclick="copyURL()">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-        Copy URL
-      </button>
-      <button class="btn btn-neu" onclick="copyLoader()">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-        Copy Loader
-      </button>
-      <button class="btn btn-ghost" onclick="createNew()">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        New
-      </button>
-      <button class="btn btn-disc" onclick="window.open('https://discord.gg/Zame2JAGDr','_blank')">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 1.9-5.7a8.5 8.5 0 1 1 3.8 3.8z"/></svg>
-        Discord
-      </button>
-    </div>
-  </div>
-</div>
-
-<div class="ov" id="m-error">
-  <div class="modal">
-    <h3>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      Something went wrong
-    </h3>
-    <p id="err-msg">Could not save your script. Make sure your Worker is deployed correctly.</p>
-    <div class="mact">
-      <button class="btn btn-ghost" onclick="closeM('m-error')">Close</button>
-    </div>
-  </div>
-</div>
-
 <script>
-const WORKER_URL = "https://lua-land-sec.angelo-olavere64.workers.dev";
-
-function ctr(id,cid,max){
-  const v=document.getElementById(id).value.length;
-  const el=document.getElementById(cid);
-  el.textContent=v+' / '+max;
-  el.classList.toggle('over',v>=max);
+var eyeOpen=true;
+function toggleEye(){
+  var inp=document.getElementById('ki');
+  var icon=document.getElementById('ei');
+  eyeOpen=!eyeOpen;
+  inp.type=eyeOpen?'password':'text';
+  icon.innerHTML=eyeOpen
+    ?'<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>'
+    :'<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>';
 }
-
-let iT;
-function showInfo(btn,e){
-  e.stopPropagation();
-  const p=document.getElementById('ipop');
-  p.textContent=btn.dataset.info;
-  p.classList.add('v');
-  const r=btn.getBoundingClientRect();
-  p.style.top=(r.bottom+8+scrollY)+'px';
-  p.style.left=Math.min(r.left,innerWidth-280)+'px';
-  clearTimeout(iT);
-  iT=setTimeout(()=>p.classList.remove('v'),3000);
-}
-document.addEventListener('click',()=>document.getElementById('ipop').classList.remove('v'));
-
-function openM(id){document.getElementById(id).classList.add('open')}
-function closeM(id){document.getElementById(id).classList.remove('open')}
-
-function doCancel(){
-  ['f-title','f-key'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('f-script').value='';
-  ctr('f-title','c-title',20);
-  ctr('f-key','c-key',20);
-  closeM('m-cancel');
-}
-
-function tryConfirm(){
-  const t=document.getElementById('f-title').value.trim();
-  const s=document.getElementById('f-script').value.trim();
-  const k=document.getElementById('f-key').value.trim();
-  if(!t||!s||!k){alert('Please fill in all fields!');return;}
-  openM('m-confirm');
-}
-
-async function doSubmit(){
-  closeM('m-confirm');
-  openM('m-loading');
-  const title=document.getElementById('f-title').value.trim();
-  const script=document.getElementById('f-script').value.trim();
-  const key=document.getElementById('f-key').value.trim();
-  try {
-    const res=await fetch(WORKER_URL+'/upload',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({title,script,key})
-    });
-    const data=await res.json();
-    closeM('m-loading');
-    if(data.id){
-      const url=WORKER_URL+'/s/'+data.id;
-      document.getElementById('result-url').textContent=url;
-      document.getElementById('result-loader').textContent=
-        'loadstring(game:HttpGet("'+url+'"))()';
-      openM('m-done');
+function go(){
+  var k=document.getElementById('ki').value.trim();
+  if(!k)return;
+  var btn=document.querySelector('.go');
+  btn.disabled=true;
+  fetch(window.location.pathname+'?k='+encodeURIComponent(k),{
+    headers:{'Accept':'text/plain'}
+  }).then(function(r){
+    if(r.ok){
+      return r.text().then(function(s){
+        document.open();
+        document.write('<pre style="background:#080809;color:#3ecf8e;padding:20px;font-family:monospace;font-size:13px;white-space:pre-wrap;word-break:break-all;min-height:100vh">'+s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</pre>');
+        document.close();
+      });
+    } else if(r.status===401){
+      window.location.href=window.location.pathname+'?err=1';
     } else {
-      throw new Error(data.error||'Unknown error');
+      btn.disabled=false;
     }
-  } catch(err){
-    closeM('m-loading');
-    document.getElementById('err-msg').textContent=err.message;
-    openM('m-error');
-  }
+  }).catch(function(){btn.disabled=false;});
 }
-
-function copyURL(){
-  navigator.clipboard.writeText(document.getElementById('result-url').textContent)
-    .then(()=>alert('URL copied!'));
-}
-function copyLoader(){
-  navigator.clipboard.writeText(document.getElementById('result-loader').textContent)
-    .then(()=>alert('Loader script copied!'));
-}
-function createNew(){
-  closeM('m-done');
-  doCancel();
-}
+document.getElementById('ki')&&document.getElementById('ki').focus();
 </script>
 </body>
-</html>
+</html>`;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function discordLog(title, desc, color) {
+  try {
+    const wh = typeof DISCORD_WEBHOOK !== 'undefined' ? DISCORD_WEBHOOK : null;
+    if (!wh) return;
+    await fetch(wh, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'Lua Land Security',
+        embeds: [{
+          title,
+          description: desc,
+          color,
+          footer: { text: 'Lua Land Security' },
+          timestamp: new Date().toISOString()
+        }]
+      })
+    });
+  } catch(_) {}
+}
+
+function generateId() {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let id = '';
+  for (let i = 0; i < 10; i++) id += chars[Math.floor(Math.random() * chars.length)];
+  return id;
+}
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...CORS }
+  });
+}
